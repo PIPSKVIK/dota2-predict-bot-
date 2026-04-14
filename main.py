@@ -127,8 +127,9 @@ class PredictBody(BaseModel):
     team2: dict
     picks: dict            # {"team1": [{id, localized_name, roles}], "team2": [...]}
     bans: dict             # {"team1": [...], "team2": [...]}
-    odds: Optional[dict] = None       # {"team1": float, "team2": float}
-    live_data: Optional[dict] = None  # {"kills_team1": int, "kills_team2": int, "gold_advantage": int}
+    odds: Optional[dict] = None
+    live_data: Optional[dict] = None
+    live_history: Optional[list] = None  # история предыдущих live-апдейтов
 
 
 @app.post("/api/parse/teams")
@@ -207,6 +208,7 @@ async def run_predict(body: PredictBody):
     s.bans = body.bans
     s.odds = body.odds
     s.live_data = body.live_data
+    s.live_history = body.live_history or []
     try:
         result = await predict(s)
         if not body.live_data:

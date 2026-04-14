@@ -57,19 +57,24 @@ async def predict(session: Session) -> dict:
 
     # Live-данные (если матч уже идёт)
     live = getattr(session, "live_data", None) or {}
+    history = getattr(session, "live_history", None) or []
     live_score = 0.0
     live_weight = 0.0
     if live:
-        kills1 = live.get("kills_team1", 0) or 0
-        kills2 = live.get("kills_team2", 0) or 0
-        gold_adv = live.get("gold_advantage", 0) or 0  # >0 = team1 впереди
+        kills1  = live.get("kills_team1", 0) or 0
+        kills2  = live.get("kills_team2", 0) or 0
+        gold_adv = live.get("gold_advantage", 0) or 0
 
         total_kills = kills1 + kills2
-        kill_score = (kills1 - kills2) / max(total_kills, 1)          # -1..1
-        gold_score = max(-1.0, min(1.0, gold_adv / 10000))            # -1..1
-        live_score = kill_score * 0.4 + gold_score * 0.6
+        kill_score  = (kills1 - kills2) / max(total_kills, 1)
+        gold_score  = max(-1.0, min(1.0, gold_adv / 10000))
 
-        # Чем больше килов — тем больше вес live-данных (до 50%)
+        # Тренды по истории апдейтов
+        trend_score = _trend_score(live, history)
+
+        # snapshot-score + тренд (тренд влияет до 30% внутри live-блока)
+        live_score = kill_score * 0.35 + gold_score * 0.50 + trend_score * 0.15
+
         live_weight = min(0.5, total_kills / 40)
         delta = delta * (1 - live_weight) + live_score * live_weight
 
@@ -184,6 +189,39 @@ _GOOD_COMBOS = [
 _BAD_COMBOS = [
     ({"Carry"}, {"Carry"}),   # два хардкерри — плохо (нет саппорта)
 ]
+
+
+def _trend_score(current: dict, history: list) -> float:
+    """
+    Анализирует тренд по истории апдейтов.
+    Переломный момент: если голд/кил-преимущество резко сменилось — учитываем.
+    Возвращает delta -1..1 (>0 = тренд в пользу team1).
+    """
+    if not history:
+        return 0.0
+
+    cur_gold  = current.get("gold_advantage", 0) or 0
+    cur_k1    = current.get("kills_team1", 0) or 0
+    cur_k2    = current.get("kills_team2", 0) or 0
+
+    # Средний голд за предыдущие снапшоты
+    prev_golds = [h.get("gold_advantage", 0) or 0 for h in history]
+    avg_prev_gold = sum(prev_golds) / len(prev_golds)
+    gold_trend = max(-1.0, min(1.0, (cur_gold - avg_prev_gold) / 8000))
+
+    # Тренд по килам: темп в последнем интервале vs общий
+    if len(history) >= 1:
+        prev = history[-1]
+        prev_k1 = prev.get("kills_team1", 0) or 0
+        prev_k2 = prev.get("kills_team2", 0) or 0
+        delta_k1 = max(0, cur_k1 - prev_k1)
+        delta_k2 = max(0, cur_k2 - prev_k2)
+        total_delta = delta_k1 + delta_k2
+        kill_trend = (delta_k1 - delta_k2) / max(total_delta, 1)
+    else:
+        kill_trend = 0.0
+
+    return gold_trend * 0.7 + kill_trend * 0.3
 
 
 def _synergy_score(picks1: list, picks2: list) -> float:

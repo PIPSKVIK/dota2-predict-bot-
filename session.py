@@ -28,6 +28,8 @@ class Session:
     pending_team: Optional[str] = None   # "team1" или "team2" — выбрана кнопкой
     odds: Optional[dict] = None          # {"team1": 1.8, "team2": 2.1}
     pending_odd: Optional[str] = None    # "team1" или "team2" — ждём кэф для этой команды
+    live_data: Optional[dict] = None
+    live_history: list = field(default_factory=list)
 
     def picks_count(self) -> tuple[int, int]:
         return len(self.picks["team1"]), len(self.picks["team2"])

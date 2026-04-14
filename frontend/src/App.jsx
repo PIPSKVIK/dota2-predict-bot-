@@ -7,6 +7,7 @@ import PredictResult from './components/PredictResult'
 import Insights from './pages/Insights'
 import History from './pages/History'
 import Schedule from './pages/Schedule'
+import HeroesRef from './pages/HeroesRef'
 import { runPredict, searchTeam } from './api'
 
 const STEPS = ['teams', 'bans', 'picks', 'odds', 'result']
@@ -34,7 +35,8 @@ const App = () => {
   const [result, setResult]         = useState(null)
   const [loading, setLoading]       = useState(false)
   const [error, setError]           = useState('')
-  const [liveData, setLiveData]     = useState(null)
+  const [liveData, setLiveData]         = useState(null)
+  const [liveHistory, setLiveHistory]   = useState([])
 
   useEffect(() => {
     fetch('/api/heroes?limit=1', { credentials: 'include' })
@@ -87,6 +89,7 @@ const App = () => {
           team2: odds.team2 ? parseFloat(odds.team2) : null,
         },
         live_data: live,
+        live_history: liveHistory,
       })
       setResult(data)
       setStep('result')
@@ -104,7 +107,7 @@ const App = () => {
     setOdds({ team1: '', team2: '' })
     setActiveTeam('team1')
     setResult(null); setError('')
-    setLiveData(null)
+    setLiveData(null); setLiveHistory([])
   }
 
   const handlePickMatch = async (match) => {
@@ -158,6 +161,7 @@ const App = () => {
           {[
             { key: 'predict',  label: '📊 Предикт'    },
             { key: 'schedule', label: '📅 Расписание' },
+            { key: 'heroes',   label: '🦸 Герои'      },
             { key: 'insights', label: '💡 Инсайды'    },
             { key: 'history',  label: '📜 История'    },
           ].map(t => (
@@ -180,6 +184,16 @@ const App = () => {
             borderRadius: 16, padding: 24,
           }}>
             <Schedule onPickMatch={handlePickMatch} />
+          </div>
+        )}
+
+        {/* Heroes tab */}
+        {tab === 'heroes' && (
+          <div style={{
+            background: '#161b27', border: '1px solid #2a3345',
+            borderRadius: 16, padding: 24,
+          }}>
+            <HeroesRef />
           </div>
         )}
 
@@ -422,6 +436,7 @@ const App = () => {
               loading={loading}
               onReset={reset}
               onRepredict={(live) => {
+                if (liveData) setLiveHistory(h => [...h, liveData])
                 setLiveData(live)
                 handlePredict(live)
               }}
