@@ -33,16 +33,28 @@ async def fetch_heroes() -> list[dict]:
     return await _get(f"{OPENDOTA}/heroes") or []
 
 
+_STOP_WORDS = {"team", "esports", "gaming", "esport", "club", "the"}
+
 def _pagename_variants(q: str) -> list[str]:
     """Генерирует варианты pagename из введённого названия."""
-    base = q.replace(" ", "_")
+    base = q.strip().replace(" ", "_")
+    base_lower = base.lower()
     variants = [base]
-    # "BetBoom" -> "BetBoom_Team"
-    if not base.lower().startswith("team_"):
-        variants.append(base + "_Team")
-    # "Spirit" -> "Team_Spirit"
-    if not base.lower().startswith("team_"):
-        variants.append("Team_" + base)
+
+    if base_lower.endswith("_team"):
+        # "L1GA_Team" -> пробуем "L1GA_TEAM" и без суффикса "L1GA"
+        root = base[:-5]  # убрать "_Team"
+        variants.append(root + "_TEAM")
+        variants.append(root)
+    else:
+        # Добавляем _Team / _TEAM суффиксы
+        if not base_lower.startswith("team_"):
+            variants.append(base + "_Team")
+            variants.append(base + "_TEAM")
+        # Добавляем Team_ префикс
+        if not base_lower.startswith("team_"):
+            variants.append("Team_" + base)
+
     return variants
 
 
@@ -93,10 +105,11 @@ def _fuzzy_match(q: str, teams: list[dict]) -> Optional[dict]:
     candidates = [t for t in teams
                   if q_lower in t["name"].lower() or t["name"].lower() in q_lower]
     if not candidates:
-        # По словам
-        words = [w for w in q_lower.split() if len(w) > 2]
-        candidates = [t for t in teams
-                      if any(w in t["name"].lower() for w in words)]
+        # По словам — исключаем стоп-слова чтобы "team" не матчил всё подряд
+        words = [w for w in q_lower.split() if len(w) > 2 and w not in _STOP_WORDS]
+        if words:
+            candidates = [t for t in teams
+                          if any(w in t["name"].lower() for w in words)]
     if not candidates:
         return None
     return candidates[0]
