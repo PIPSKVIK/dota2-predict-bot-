@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 
 import httpx
 from dotenv import load_dotenv
+import api as api_mod
 
 load_dotenv()
 
@@ -32,6 +33,13 @@ async def get_matches() -> list[dict]:
     if matches or not _cache["data"]:
         _cache["data"] = matches
         _cache["fetched_at"] = now
+        # Обновляем кэш команд для поиска
+        teams = []
+        for m in matches:
+            for key in ("team1", "team2"):
+                logo_key = key + "_logo"
+                teams.append({"name": m[key], "team_id": 0, "tag": "", "logo_url": m.get(logo_key, ""), "rating": 0})
+        api_mod.update_teams_cache(teams)
     return _cache["data"]
 
 

@@ -1,12 +1,24 @@
 import aiohttp
 import asyncio
 import ssl
+import os
+import urllib.parse
 from typing import Optional
 
+import httpx
+
 OPENDOTA = "https://api.opendota.com/api"
+LIQUIPEDIA_API = "https://api.liquipedia.net/api/v3"
+LIQUIPEDIA_KEY = os.getenv("LIQUIPEDIA_API_KEY", "")
+
 _ssl = ssl.create_default_context()
 _ssl.check_hostname = False
 _ssl.verify_mode = ssl.CERT_NONE
+
+_lp_headers = {
+    "Authorization": f"Apikey {LIQUIPEDIA_KEY}",
+    "Accept": "application/json",
+}
 
 
 async def _get(url: str, params: dict = None) -> any:
@@ -21,36 +33,94 @@ async def fetch_heroes() -> list[dict]:
     return await _get(f"{OPENDOTA}/heroes") or []
 
 
-_teams_cache: list[dict] = []
+def _pagename_variants(q: str) -> list[str]:
+    """Генерирует варианты pagename из введённого названия."""
+    base = q.replace(" ", "_")
+    variants = [base]
+    # "BetBoom" -> "BetBoom_Team"
+    if not base.lower().startswith("team_"):
+        variants.append(base + "_Team")
+    # "Spirit" -> "Team_Spirit"
+    if not base.lower().startswith("team_"):
+        variants.append("Team_" + base)
+    return variants
 
 
-async def _load_teams() -> list[dict]:
-    global _teams_cache
-    if _teams_cache:
-        return _teams_cache
-    result = await _get(f"{OPENDOTA}/teams")
-    _teams_cache = result or []
-    return _teams_cache
+async def _lp_team_by_pagename(pagename: str) -> Optional[dict]:
+    try:
+        async with httpx.AsyncClient(headers=_lp_headers, timeout=8) as client:
+            resp = await client.get(f"{LIQUIPEDIA_API}/team", params={
+                "wiki": "dota2",
+                "limit": "1",
+                "conditions": f"[[pagename::{pagename}]]",
+            })
+            data = resp.json().get("result", [])
+            if data:
+                t = data[0]
+                return {
+                    "team_id":  t.get("pageid", 0),
+                    "name":     t.get("name") or pagename.replace("_", " "),
+                    "tag":      t.get("shortname", ""),
+                    "logo_url": t.get("logodarkurl") or t.get("logourl") or "",
+                    "rating":   0,
+                }
+    except Exception:
+        pass
+    return None
+
+
+# Кэш команд из расписания для fuzzy-поиска
+_teams_from_schedule: list[dict] = []
+
+
+def update_teams_cache(teams: list[dict]) -> None:
+    """Вызывается из schedule.py при загрузке матчей."""
+    global _teams_from_schedule
+    existing = {t["name"].lower() for t in _teams_from_schedule}
+    for t in teams:
+        if t["name"].lower() not in existing:
+            _teams_from_schedule.append(t)
+            existing.add(t["name"].lower())
+
+
+def _fuzzy_match(q: str, teams: list[dict]) -> Optional[dict]:
+    q_lower = q.lower()
+    # Точное совпадение
+    for t in teams:
+        if t["name"].lower() == q_lower:
+            return t
+    # Частичное — q содержится в названии или наоборот
+    candidates = [t for t in teams
+                  if q_lower in t["name"].lower() or t["name"].lower() in q_lower]
+    if not candidates:
+        # По словам
+        words = [w for w in q_lower.split() if len(w) > 2]
+        candidates = [t for t in teams
+                      if any(w in t["name"].lower() for w in words)]
+    if not candidates:
+        return None
+    return candidates[0]
 
 
 async def search_team(name: str) -> Optional[dict]:
-    teams = await _load_teams()
-    q = name.lower().strip()
-    # Точное совпадение
-    for t in teams:
-        if t["name"].lower() == q:
-            return t
-    # Частичное совпадение
-    matches = [t for t in teams if q in t["name"].lower() or t.get("tag", "").lower() == q]
-    if not matches:
-        # Ищем по отдельным словам
-        words = q.split()
-        matches = [t for t in teams if any(w in t["name"].lower() for w in words if len(w) > 2)]
-    if not matches:
+    """Поиск команды: сначала в кэше расписания, потом через Liquipedia API."""
+    q = name.strip()
+    if not q:
         return None
-    # Берём с наибольшим рейтингом
-    matches.sort(key=lambda t: t.get("rating", 0), reverse=True)
-    return matches[0]
+
+    # 1. Поиск в кэше команд из расписания
+    found = _fuzzy_match(q, _teams_from_schedule)
+    if found:
+        return found
+
+    # 2. Перебор вариантов pagename через API
+    for variant in _pagename_variants(q):
+        result = await _lp_team_by_pagename(variant)
+        if result:
+            _teams_from_schedule.append(result)
+            return result
+
+    return None
 
 
 async def fetch_team(team_id: int) -> Optional[dict]:
