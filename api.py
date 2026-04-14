@@ -29,8 +29,23 @@ async def _get(url: str, params: dict = None) -> any:
             return None
 
 
+def _load_heroes_fallback() -> list[dict]:
+    import json, os
+    path = os.path.join(os.path.dirname(__file__), "heroes_data.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
 async def fetch_heroes() -> list[dict]:
-    return await _get(f"{OPENDOTA}/heroes") or []
+    try:
+        result = await _get(f"{OPENDOTA}/heroes")
+        if result:
+            return result
+    except Exception:
+        pass
+    return _load_heroes_fallback()
 
 
 _STOP_WORDS = {"team", "esports", "gaming", "esport", "club", "the"}
