@@ -44,11 +44,11 @@ async def get_matches() -> list[dict]:
 
 
 async def _fetch() -> list[dict]:
-    # Берём матчи от текущего момента на 7 дней вперёд, только tier 1-3
-    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    # Берём матчи: от 8 часов назад (live) до 7 дней вперёд
+    past_str = (datetime.now(timezone.utc) - timedelta(hours=8)).strftime("%Y-%m-%dT%H:%M:%S")
     week_str = (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S")
 
-    cond = f"[[date::>{now_str}]] AND [[date::<{week_str}]]"
+    cond = f"[[date::>{past_str}]] AND [[date::<{week_str}]]"
     params = {
         "wiki":       "dota2",
         "limit":      "50",
@@ -84,6 +84,10 @@ def _parse_match(m: dict) -> dict | None:
 
     # Пропускаем TBD / пустые команды
     if not t1 or not t2 or t1.startswith("#") or t2.startswith("#"):
+        return None
+
+    # Пропускаем завершённые матчи
+    if m.get("finished") == 1:
         return None
 
     # Пропускаем низкие тиры (4+)
