@@ -231,8 +231,32 @@ const App = () => {
         {/* Card */}
         <div style={{
           background: '#161b27', border: '1px solid #2a3345',
-          borderRadius: 16, padding: 24,
+          borderRadius: 16, padding: 24, position: 'relative',
         }}>
+
+          {/* Loader overlay */}
+          {loading && (
+            <div style={{
+              position: 'absolute', inset: 0, borderRadius: 16,
+              background: '#161b27ee', backdropFilter: 'blur(2px)',
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: 16,
+              zIndex: 10,
+            }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: '50%',
+                border: '3px solid #2a3345',
+                borderTopColor: '#4a9eff',
+                animation: 'spin 0.8s linear infinite',
+              }} />
+              <div style={{ color: '#4a9eff', fontSize: 14, fontWeight: 600 }}>
+                Анализирую...
+              </div>
+              <div style={{ color: '#4a5568', fontSize: 12 }}>
+                считаю каунтеры, синергии, историю
+              </div>
+            </div>
+          )}
 
           {/* ── TEAMS ── */}
           {step === 'teams' && (
