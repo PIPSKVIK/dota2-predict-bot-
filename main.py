@@ -59,7 +59,11 @@ async def auth_middleware(request: Request, call_next):
 async def startup():
     insight_db.init_db()
     history_db.init_db()
-    heroes_data = await api.fetch_heroes()
+    try:
+        heroes_data = await api.fetch_heroes()
+    except Exception as e:
+        print(f"Warning: could not load heroes at startup ({e}), will retry on first request")
+        heroes_data = []
     hero_db.init_heroes(heroes_data)
     print(f"Loaded {len(heroes_data)} heroes.")
 
