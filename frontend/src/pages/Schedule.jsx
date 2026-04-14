@@ -101,7 +101,8 @@ const MatchCard = ({ match, onPick }) => {
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#4a9eff', textAlign: 'right' }}>{match.team1}</span>
           {match.team1_logo && (
-            <img src={match.team1_logo} alt="" style={{ width: 24, height: 24, objectFit: 'contain', flexShrink: 0 }} />
+            <img src={match.team1_logo} alt="" onError={e => e.currentTarget.style.display='none'}
+              style={{ width: 24, height: 24, objectFit: 'contain', flexShrink: 0 }} />
           )}
         </div>
 
@@ -115,7 +116,8 @@ const MatchCard = ({ match, onPick }) => {
 
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
           {match.team2_logo && (
-            <img src={match.team2_logo} alt="" style={{ width: 24, height: 24, objectFit: 'contain', flexShrink: 0 }} />
+            <img src={match.team2_logo} alt="" onError={e => e.currentTarget.style.display='none'}
+              style={{ width: 24, height: 24, objectFit: 'contain', flexShrink: 0 }} />
           )}
           <span style={{ fontSize: 13, fontWeight: 700, color: '#e84f4f' }}>{match.team2}</span>
         </div>
