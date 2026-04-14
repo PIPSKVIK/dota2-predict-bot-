@@ -1,18 +1,22 @@
 """
-Скрапинг расписания матчей с Liquipedia.
+Расписание матчей через Liquipedia DB API.
+Docs: https://api.liquipedia.net
 """
-import httpx
-from bs4 import BeautifulSoup
-from datetime import datetime, timezone
+import os
+import urllib.parse
+from datetime import datetime, timezone, timedelta
 
-URL = "https://liquipedia.net/dota2/Liquipedia:Upcoming_and_ongoing_matches"
+import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
+
+API_KEY = os.getenv("LIQUIPEDIA_API_KEY", "")
+API_URL = "https://api.liquipedia.net/api/v3/match"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5",
-    "Accept-Encoding": "gzip, deflate",
-    "Connection": "keep-alive",
+    "Authorization": f"Apikey {API_KEY}",
+    "Accept": "application/json",
 }
 
 _cache: dict = {"data": [], "fetched_at": None}
@@ -24,112 +28,103 @@ async def get_matches() -> list[dict]:
     if _cache["fetched_at"] and now - _cache["fetched_at"] < CACHE_TTL:
         return _cache["data"]
 
+    matches = await _fetch()
+    if matches or not _cache["data"]:
+        _cache["data"] = matches
+        _cache["fetched_at"] = now
+    return _cache["data"]
+
+
+async def _fetch() -> list[dict]:
+    # Берём матчи от текущего момента на 7 дней вперёд, только tier 1-3
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    week_str = (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S")
+
+    cond = f"[[date::>{now_str}]] AND [[date::<{week_str}]]"
+    params = {
+        "wiki":       "dota2",
+        "limit":      "50",
+        "order":      "date asc",
+        "conditions": cond,
+    }
+
     try:
-        async with httpx.AsyncClient(headers=HEADERS, follow_redirects=True, timeout=15) as client:
-            resp = await client.get(URL)
+        async with httpx.AsyncClient(headers=HEADERS, timeout=15, follow_redirects=True) as client:
+            resp = await client.get(API_URL, params=params)
             resp.raise_for_status()
-    except Exception:
+            data = resp.json()
+    except Exception as e:
+        print(f"[schedule] API error: {e}")
         return _cache["data"]
 
-    matches = _parse(resp.text)
-    _cache["data"] = matches
-    _cache["fetched_at"] = now
-    return matches
+    results = []
+    for m in data.get("result", []):
+        parsed = _parse_match(m)
+        if parsed:
+            results.append(parsed)
+
+    return results
 
 
-def _clean(name: str) -> str:
-    return name.replace(" (page does not exist)", "").strip()
-
-
-def _parse(html: str) -> list[dict]:
-    soup = BeautifulSoup(html, "html.parser")
-    matches = []
-
-    for div in soup.select(".new-match-style"):
-        try:
-            m = _parse_match(div)
-            if m:
-                matches.append(m)
-        except Exception:
-            continue
-
-    return matches
-
-
-def _parse_match(tag) -> dict | None:
-    # Команды
-    left_link  = tag.select_one(".match-info-header-opponent-left .name a")
-    right_links = tag.select(".match-info-header-opponent:not(.match-info-header-opponent-left) .name a")
-    right_link = right_links[0] if right_links else None
-
-    t1 = left_link.get_text(strip=True)  if left_link  else "TBD"
-    t2 = right_link.get_text(strip=True) if right_link else "TBD"
-
-    if t1 == "TBD" and t2 == "TBD":
+def _parse_match(m: dict) -> dict | None:
+    ops = m.get("match2opponents", [])
+    if len(ops) < 2:
         return None
 
-    t1_full = _clean(left_link.get("title", t1)  if left_link  else t1)
-    t2_full = _clean(right_link.get("title", t2) if right_link else t2)
+    t1 = ops[0].get("name", "").strip()
+    t2 = ops[1].get("name", "").strip()
 
-    # Формат (Bo3, Bo5...)
-    fmt_el = tag.select_one(".match-info-header-scoreholder-lower")
-    fmt = fmt_el.get_text(strip=True).strip("()") if fmt_el else ""
+    # Пропускаем TBD / пустые команды
+    if not t1 or not t2 or t1.startswith("#") or t2.startswith("#"):
+        return None
 
-    # Счёт если матч идёт
-    scores = tag.select(".match-info-header-scoreholder-score")
+    # Пропускаем низкие тиры (4+)
+    tier = m.get("liquipediatier", "5")
+    try:
+        if int(tier) >= 4:
+            return None
+    except ValueError:
+        pass
+
+    # Счёт
+    s1 = ops[0].get("score", -1)
+    s2 = ops[1].get("score", -1)
     score = None
-    if len(scores) >= 2:
-        s1 = scores[0].get_text(strip=True)
-        s2 = scores[1].get_text(strip=True)
-        if s1.isdigit() and s2.isdigit():
-            score = f"{s1}:{s2}"
+    if isinstance(s1, int) and isinstance(s2, int) and s1 >= 0 and s2 >= 0:
+        score = f"{s1}:{s2}"
 
-    # Время матча
-    time_el = tag.select_one(".timer-object")
+    # Время
+    date_str = m.get("date", "")
     timestamp = None
     time_str = ""
-    if time_el:
-        ts = time_el.get("data-timestamp")
-        if ts:
-            try:
-                timestamp = int(ts)
-                dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
-                time_str = dt.strftime("%d %b %H:%M UTC")
-            except ValueError:
-                pass
-        if not time_str:
-            time_str = time_el.get_text(strip=True)
+    if date_str:
+        try:
+            dt = datetime.fromisoformat(date_str.replace(" ", "T")).replace(tzinfo=timezone.utc)
+            timestamp = int(dt.timestamp())
+            time_str = dt.strftime("%d %b %H:%M UTC")
+        except ValueError:
+            time_str = date_str
 
-    # Турнир
-    tour_el = tag.select_one(".match-info-tournament-name")
-    tournament = tour_el.get_text(strip=True) if tour_el else ""
+    # Формат
+    bestof = m.get("bestof", 0)
+    fmt = f"Bo{bestof}" if bestof and int(bestof) > 0 else ""
 
-    # Ссылки на страницы команд
-    t1_url = ""
-    t2_url = ""
-    if left_link:
-        href = left_link.get("href", "")
-        if href.startswith("/dota2/") and "index.php" not in href:
-            t1_url = "https://liquipedia.net" + href
-    if right_link:
-        href = right_link.get("href", "")
-        if href.startswith("/dota2/") and "index.php" not in href:
-            t2_url = "https://liquipedia.net" + href
-
-    # Статус матча
-    live = bool(score)
+    # Live: матч начался, ещё не завершён
+    now_ts = datetime.now(timezone.utc).timestamp()
+    is_live = bool(
+        m.get("finished") == 0
+        and timestamp
+        and timestamp <= now_ts
+    )
 
     return {
-        "team1":      t1_full,
-        "team2":      t2_full,
-        "team1_short": t1,
-        "team2_short": t2,
+        "team1":      t1,
+        "team2":      t2,
         "format":     fmt,
         "score":      score,
         "timestamp":  timestamp,
         "time_str":   time_str,
-        "tournament": tournament,
-        "team1_url":  t1_url,
-        "team2_url":  t2_url,
-        "live":       live,
+        "tournament": m.get("tournament", ""),
+        "tier":       tier,
+        "live":       is_live,
     }
