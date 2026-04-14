@@ -10,9 +10,12 @@ const Schedule = ({ onPickMatch }) => {
     setLoading(true)
     setError('')
     try {
-      setMatches(await getSchedule())
-    } catch {
-      setError('Не удалось загрузить расписание')
+      const data = await getSchedule()
+      if (!Array.isArray(data)) throw new Error(JSON.stringify(data))
+      setMatches(data)
+    } catch (e) {
+      console.error('Schedule error:', e)
+      setError('Не удалось загрузить расписание: ' + e.message)
     }
     setLoading(false)
   }
@@ -52,8 +55,11 @@ const Schedule = ({ onPickMatch }) => {
         </div>
       )}
 
-      <div style={{ fontSize: 11, color: '#2a3345', textAlign: 'center', marginTop: 16 }}>
-        Данные с Liquipedia · обновляются каждые 5 минут
+      <div style={{ fontSize: 11, color: '#4a5568', textAlign: 'center', marginTop: 16 }}>
+        Данные предоставлены{' '}
+        <a href="https://liquipedia.net/dota2" target="_blank" rel="noopener noreferrer"
+          style={{ color: '#4a9eff', textDecoration: 'none' }}>Liquipedia</a>
+        {' '}(CC-BY-SA) · обновляются каждые 5 минут
       </div>
     </div>
   )
@@ -92,8 +98,11 @@ const MatchCard = ({ match, onPick }) => {
 
       {/* Команды */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <div style={{ flex: 1, textAlign: 'right' }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#4a9eff' }}>{match.team1}</span>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#4a9eff', textAlign: 'right' }}>{match.team1}</span>
+          {match.team1_logo && (
+            <img src={match.team1_logo} alt="" style={{ width: 24, height: 24, objectFit: 'contain', flexShrink: 0 }} />
+          )}
         </div>
 
         <div style={{ textAlign: 'center', minWidth: 48 }}>
@@ -104,8 +113,11 @@ const MatchCard = ({ match, onPick }) => {
           )}
         </div>
 
-        <div style={{ flex: 1 }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#e84f4f' }}>{match.team2}</span>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+          {match.team2_logo && (
+            <img src={match.team2_logo} alt="" style={{ width: 24, height: 24, objectFit: 'contain', flexShrink: 0 }} />
+          )}
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#e84f4f' }}>{match.team2}</span>
         </div>
       </div>
 

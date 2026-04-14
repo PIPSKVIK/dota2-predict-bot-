@@ -93,7 +93,16 @@ def _parse_match(m: dict) -> dict | None:
     if isinstance(s1, int) and isinstance(s2, int) and s1 >= 0 and s2 >= 0:
         score = f"{s1}:{s2}"
 
-    # Время
+    # Логотипы команд
+    def _logo(op: dict) -> str:
+        tt = op.get("teamtemplate") or {}
+        return tt.get("imagedarkurl") or tt.get("imageurl") or ""
+
+    t1_logo = _logo(ops[0])
+    t2_logo = _logo(ops[1])
+
+    # Время (UTC → МСК UTC+3)
+    MSK = timezone(timedelta(hours=3))
     date_str = m.get("date", "")
     timestamp = None
     time_str = ""
@@ -101,7 +110,7 @@ def _parse_match(m: dict) -> dict | None:
         try:
             dt = datetime.fromisoformat(date_str.replace(" ", "T")).replace(tzinfo=timezone.utc)
             timestamp = int(dt.timestamp())
-            time_str = dt.strftime("%d %b %H:%M UTC")
+            time_str = dt.astimezone(MSK).strftime("%d %b %H:%M МСК")
         except ValueError:
             time_str = date_str
 
@@ -120,6 +129,8 @@ def _parse_match(m: dict) -> dict | None:
     return {
         "team1":      t1,
         "team2":      t2,
+        "team1_logo": t1_logo,
+        "team2_logo": t2_logo,
         "format":     fmt,
         "score":      score,
         "timestamp":  timestamp,
