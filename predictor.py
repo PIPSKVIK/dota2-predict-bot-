@@ -8,6 +8,7 @@ from api import (
     fetch_team, fetch_hero_matchups,
 )
 from session import Session
+import insights as insight_db
 
 
 async def predict(session: Session) -> dict:
@@ -41,16 +42,36 @@ async def predict(session: Session) -> dict:
     hero_wr_score  = _hero_winrate_score(picks1, picks2, hero_stats)
     counter_score  = _counter_score(picks1, picks2, matchups_data)
     synergy_score  = _synergy_score(picks1, picks2)
+    meta_score     = insight_db.insights_score(picks1, picks2)
 
-    # Веса: h2h=30%, рейтинг=20%, каунтеры=20%, синергии=15%, winrate=10%, пики=5%
+    # Веса: h2h=28%, рейтинг=19%, каунтеры=19%, синергии=14%, winrate=10%, пики=5%, мета=5%
     delta = (
-        h2h_score      * 0.30 +
-        rating_score   * 0.20 +
-        counter_score  * 0.20 +
-        synergy_score  * 0.15 +
+        h2h_score      * 0.28 +
+        rating_score   * 0.19 +
+        counter_score  * 0.19 +
+        synergy_score  * 0.14 +
         hero_wr_score  * 0.10 +
-        pick_fit_score * 0.05
+        pick_fit_score * 0.05 +
+        meta_score     * 0.05
     )
+
+    # Live-данные (если матч уже идёт)
+    live = getattr(session, "live_data", None) or {}
+    live_score = 0.0
+    live_weight = 0.0
+    if live:
+        kills1 = live.get("kills_team1", 0) or 0
+        kills2 = live.get("kills_team2", 0) or 0
+        gold_adv = live.get("gold_advantage", 0) or 0  # >0 = team1 впереди
+
+        total_kills = kills1 + kills2
+        kill_score = (kills1 - kills2) / max(total_kills, 1)          # -1..1
+        gold_score = max(-1.0, min(1.0, gold_adv / 10000))            # -1..1
+        live_score = kill_score * 0.4 + gold_score * 0.6
+
+        # Чем больше килов — тем больше вес live-данных (до 50%)
+        live_weight = min(0.5, total_kills / 40)
+        delta = delta * (1 - live_weight) + live_score * live_weight
 
     team1_pct = round(50 + 50 * (2 / (1 + math.exp(-delta * 3)) - 1), 1)
     team2_pct = round(100 - team1_pct, 1)
@@ -62,11 +83,13 @@ async def predict(session: Session) -> dict:
         "team2_pct": team2_pct,
         "h2h_total": len(h2h),
         "team1_h2h_wins": sum(1 for m in h2h if _team_won(m, team1_id)),
+        "live_weight": round(live_weight, 2),
         "details": {
             "h2h":      round(h2h_score, 3),
             "rating":   round(rating_score, 3),
             "counters": round(counter_score, 3),
             "synergy":  round(synergy_score, 3),
+            "meta":     round(meta_score, 3),
             "hero_wr":  round(hero_wr_score, 3),
             "pick_fit": round(pick_fit_score, 3),
         }

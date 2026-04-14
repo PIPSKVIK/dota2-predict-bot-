@@ -1,9 +1,13 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import Login from './pages/Login'
 import TeamSearch from './components/TeamSearch'
 import HeroSearch from './components/HeroSearch'
 import HeroChip from './components/HeroChip'
 import PredictResult from './components/PredictResult'
-import { runPredict } from './api'
+import Insights from './pages/Insights'
+import History from './pages/History'
+import Schedule from './pages/Schedule'
+import { runPredict, searchTeam } from './api'
 
 const STEPS = ['teams', 'bans', 'picks', 'odds', 'result']
 
@@ -17,16 +21,29 @@ const STEP_LABELS = [
 const TEAM_COLORS = { team1: '#4a9eff', team2: '#e84f4f' }
 
 const App = () => {
-  const [step, setStep]     = useState('teams')
-  const [team1, setTeam1]   = useState(null)
-  const [team2, setTeam2]   = useState(null)
-  const [picks, setPicks]   = useState({ team1: [], team2: [] })
-  const [bans, setBans]     = useState({ team1: [], team2: [] })
-  const [odds, setOdds]     = useState({ team1: '', team2: '' })
+  const [authed, setAuthed]         = useState(false)
+  const [authChecked, setAuthChecked] = useState(false)
+  const [tab, setTab]               = useState('predict')
+  const [step, setStep]             = useState('teams')
+  const [team1, setTeam1]           = useState(null)
+  const [team2, setTeam2]           = useState(null)
+  const [picks, setPicks]           = useState({ team1: [], team2: [] })
+  const [bans, setBans]             = useState({ team1: [], team2: [] })
+  const [odds, setOdds]             = useState({ team1: '', team2: '' })
   const [activeTeam, setActiveTeam] = useState('team1')
-  const [result, setResult] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError]   = useState('')
+  const [result, setResult]         = useState(null)
+  const [loading, setLoading]       = useState(false)
+  const [error, setError]           = useState('')
+  const [liveData, setLiveData]     = useState(null)
+
+  useEffect(() => {
+    fetch('/api/heroes?limit=1', { credentials: 'include' })
+      .then(r => { setAuthed(r.ok); setAuthChecked(true) })
+      .catch(() => setAuthChecked(true))
+  }, [])
+
+  if (!authChecked) return null
+  if (!authed) return <Login onLogin={() => setAuthed(true)} />
 
   const allUsedIds = [
     ...picks.team1, ...picks.team2,
@@ -41,7 +58,7 @@ const App = () => {
       })
     } else {
       setBans(b => {
-        if (b[teamKey].find(h => h.id === hero.id)) return b
+        if (b[teamKey].length >= 7 || b[teamKey].find(h => h.id === hero.id)) return b
         return { ...b, [teamKey]: [...b[teamKey], hero] }
       })
     }
@@ -55,10 +72,11 @@ const App = () => {
     }
   }
 
-  const handlePredict = async () => {
+  const handlePredict = async (overrideLive = null) => {
     setLoading(true)
     setError('')
     try {
+      const live = overrideLive ?? liveData
       const data = await runPredict({
         team1: { id: team1.team_id, name: team1.name },
         team2: { id: team2.team_id, name: team2.name },
@@ -68,6 +86,7 @@ const App = () => {
           team1: odds.team1 ? parseFloat(odds.team1) : null,
           team2: odds.team2 ? parseFloat(odds.team2) : null,
         },
+        live_data: live,
       })
       setResult(data)
       setStep('result')
@@ -85,6 +104,19 @@ const App = () => {
     setOdds({ team1: '', team2: '' })
     setActiveTeam('team1')
     setResult(null); setError('')
+    setLiveData(null)
+  }
+
+  const handlePickMatch = async (match) => {
+    reset()
+    setTab('predict')
+    // Ищем команды через API — match содержит team1/team2 (полные названия с Liquipedia)
+    const [t1, t2] = await Promise.all([
+      searchTeam(match.team1),
+      searchTeam(match.team2),
+    ])
+    if (t1) setTeam1(t1)
+    if (t2) setTeam2(t2)
   }
 
   const teamName = (key) => key === 'team1' ? team1?.name : team2?.name
@@ -103,15 +135,76 @@ const App = () => {
       <div style={{ width: '100%', maxWidth: 600 }}>
 
         {/* Header */}
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: -1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+          <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -1 }}>
             <span style={{ color: '#4a9eff' }}>Dota 2</span>{' '}
             <span style={{ color: '#e8eaf0' }}>Predict</span>
           </div>
-          <div style={{ fontSize: 13, color: '#8b95a8', marginTop: 4 }}>
-            Анализ матча по пикам и истории команд
-          </div>
+          <button
+            onClick={async () => {
+              await fetch('/api/logout', { method: 'POST', credentials: 'include' })
+              setAuthed(false)
+            }}
+            style={{
+              background: 'none', border: '1px solid #2a3345',
+              borderRadius: 8, padding: '6px 12px',
+              color: '#8b95a8', fontSize: 12, cursor: 'pointer',
+            }}
+          >Выйти</button>
         </div>
+
+        {/* Top nav */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
+          {[
+            { key: 'predict',  label: '📊 Предикт'    },
+            { key: 'schedule', label: '📅 Расписание' },
+            { key: 'insights', label: '💡 Инсайды'    },
+            { key: 'history',  label: '📜 История'    },
+          ].map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)} style={{
+              flex: 1, padding: '10px 0',
+              background: tab === t.key ? '#4a9eff22' : '#161b27',
+              border: `1px solid ${tab === t.key ? '#4a9eff' : '#2a3345'}`,
+              borderRadius: 10, color: tab === t.key ? '#4a9eff' : '#8b95a8',
+              fontSize: 14, fontWeight: 600, cursor: 'pointer', transition: 'all .2s',
+            }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Schedule tab */}
+        {tab === 'schedule' && (
+          <div style={{
+            background: '#161b27', border: '1px solid #2a3345',
+            borderRadius: 16, padding: 24,
+          }}>
+            <Schedule onPickMatch={handlePickMatch} />
+          </div>
+        )}
+
+        {/* Insights tab */}
+        {tab === 'insights' && (
+          <div style={{
+            background: '#161b27', border: '1px solid #2a3345',
+            borderRadius: 16, padding: 24,
+          }}>
+            <Insights />
+          </div>
+        )}
+
+        {/* History tab */}
+        {tab === 'history' && (
+          <div style={{
+            background: '#161b27', border: '1px solid #2a3345',
+            borderRadius: 16, padding: 24,
+          }}>
+            <History />
+          </div>
+        )}
+
+        {/* Predict tab */}
+        {tab === 'predict' && <>
 
         {/* Progress bar */}
         {step !== 'result' && (
@@ -169,20 +262,21 @@ const App = () => {
 
               <TeamTabs
                 teams={[
-                  { key: 'team1', name: teamName('team1'), count: bans.team1.length },
-                  { key: 'team2', name: teamName('team2'), count: bans.team2.length },
+                  { key: 'team1', name: teamName('team1'), count: bans.team1.length, max: 7 },
+                  { key: 'team2', name: teamName('team2'), count: bans.team2.length, max: 7 },
                 ]}
                 active={activeTeam}
                 onChange={setActiveTeam}
-                prefix="🚫"
               />
 
-              <HeroSearch
-                placeholder="Поиск героя для бана..."
-                onSelect={h => addHero(activeTeam, h, 'ban')}
-                usedIds={allUsedIds}
-                teamColor={TEAM_COLORS[activeTeam]}
-              />
+              {bans[activeTeam].length < 7 && (
+                <HeroSearch
+                  placeholder="Поиск героя для бана..."
+                  onSelect={h => addHero(activeTeam, h, 'ban')}
+                  usedIds={allUsedIds}
+                  teamColor={TEAM_COLORS[activeTeam]}
+                />
+              )}
 
               <HeroLists picks={bans} team1={team1} team2={team2} type="ban" onRemove={removeHero} />
 
@@ -276,7 +370,7 @@ const App = () => {
               <div style={{ display: 'flex', gap: 10 }}>
                 <BackBtn onClick={() => setStep('picks')} />
                 <button
-                  onClick={handlePredict}
+                  onClick={() => handlePredict()}
                   disabled={loading}
                   style={{
                     flex: 1, padding: 14, border: 'none', borderRadius: 10,
@@ -297,10 +391,22 @@ const App = () => {
 
           {/* ── RESULT ── */}
           {step === 'result' && result && (
-            <PredictResult result={result} onReset={reset} />
+            <PredictResult
+              result={result}
+              team1={team1}
+              team2={team2}
+              loading={loading}
+              onReset={reset}
+              onRepredict={(live) => {
+                setLiveData(live)
+                handlePredict(live)
+              }}
+            />
           )}
 
         </div>
+        </>}
+
       </div>
     </div>
   )
