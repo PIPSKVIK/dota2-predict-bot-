@@ -22,11 +22,14 @@ _lp_headers = {
 
 
 async def _get(url: str, params: dict = None) -> any:
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10), ssl=_ssl) as resp:
-            if resp.status == 200:
-                return await resp.json()
-            return None
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=8), ssl=_ssl) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                return None
+    except Exception:
+        return None
 
 
 def _load_heroes_fallback() -> list[dict]:
