@@ -1,10 +1,10 @@
 # Dota 2 Predict
 
-> **Учебный проект** — сделан для интереса и личного использования во время просмотра турниров по Dota 2.
+> **Pet project** — built for fun and personal use while watching Dota 2 tournaments.
 
-Веб-приложение для предсказания результатов Dota 2 матчей по пикам команд. Вводишь пики обеих команд голосом или текстом — получаешь процент победы с разбивкой по факторам.
+A web app that predicts Dota 2 match outcomes based on team picks. Enter picks for both teams via voice or text — get win probability with a breakdown by factors.
 
-Отдельное спасибо [Liquipedia](https://liquipedia.net) за открытый API с расписанием матчей и данными о командах — без него половина функционала бы не работала.
+Special thanks to [Liquipedia](https://liquipedia.net) for their open API with match schedules and team data — half of this wouldn't work without it.
 
 ## Стек
 
